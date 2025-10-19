@@ -1,0 +1,20 @@
+{
+  "name": "gaming-cafe-web",
+  "version": "1.0.0",
+  "description": "Simple gaming cafe site",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:dev": "NODE_ENV=development nodemon server.js",
+    "test": "node ./test/test.js",
+    "lint": "npx eslint . --ext .js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "nodemon": "^2.0.0"
+  }
+}
