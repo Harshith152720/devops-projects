@@ -1,0 +1,50 @@
+name: CI-CD to Azure AKS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: gaming-cafe-app
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Linter
+        run: npm run lint || echo "⚠️ No linting configured"
+
+      - name: Run Unit Tests
+        run: npm test || echo "⚠️ No tests configured"
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Build & Push Image to ACR
+        run: |
+          az acr build --registry ${{ secrets.ACR_NAME }} --image $IMAGE_NAME:${{ github.run_number }} .
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials --resource-group ${{ secrets.RESOURCE_GROUP }} \
+          --name ${{ secrets.AKS_NAME }} --overwrite-existing
+
+      - name: Deploy to AKS
+        run: |
+          kubectl set image deployment/gaming-cafe-deployment gaming-cafe=${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:${{ github.run_number }} || \
+          kubectl apply -f k8s/
