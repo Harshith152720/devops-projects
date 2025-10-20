@@ -48,3 +48,4 @@ jobs:
         run: |
           kubectl set image deployment/gaming-cafe-deployment gaming-cafe=${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:${{ github.run_number }} || \
           kubectl apply -f k8s/
+          
