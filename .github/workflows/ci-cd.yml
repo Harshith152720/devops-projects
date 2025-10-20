@@ -10,7 +10,7 @@ env:
   NAMESPACE: gaming-cafe
   RESOURCE_GROUP: rg-gamingcafe
   AKS_CLUSTER: aks-gamingcafe
-  ACR_NAME: gcrgamingcafe
+  ACR_NAME: gcrgamingcafe9218
 
 jobs:
   build-and-deploy:
