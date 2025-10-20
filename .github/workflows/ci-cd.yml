@@ -1,74 +1,72 @@
-name: CI-CD Gaming Cafe App
+name: CI/CD - Gaming Cafe App
 
 on:
   push:
     branches:
-      - main   # triggers when code is pushed to main
+      - main
 
 env:
+  ACR_NAME: gcrgamingcafe9218        # your ACR name
+  RESOURCE_GROUP: gaming-cafe-rg # your Azure Resource Group
+  CLUSTER_NAME: gaming-cafe-aks  # your AKS cluster name
+  NAMESPACE: default             # or "gaming-cafe"
   IMAGE_NAME: gaming-cafe-app
-  NAMESPACE: gaming-cafe
-  RESOURCE_GROUP: rg-gamingcafe
-  AKS_CLUSTER: aks-gamingcafe
-  ACR_NAME: gcrgamingcafe9218
 
 jobs:
-  build-and-deploy:
+  build-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout code
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2️⃣ Set up Node.js
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      # 3️⃣ Install dependencies
-      - name: Install dependencies
-        run: npm install
-
-      # 4️⃣ Run linter (optional)
-      - name: Run Linter
-        run: npm run lint || echo "⚠️ No linting configured"
-
-      # 5️⃣ Run unit tests (optional)
-      - name: Run Unit Tests
-        run: npm test || echo "⚠️ No tests configured"
-
-      # 6️⃣ Login to Azure
-      - name: Login to Azure
-        uses: azure/login@v2
+      # Step 1: Login to Azure using service principal
+      - name: Azure Login
+        uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 7️⃣ Build & push Docker image to ACR
-      - name: Build & Push Docker image
+      # Step 2: Login to ACR
+      - name: Azure Container Registry Login
+        run: |
+          az acr login --name $ACR_NAME
+
+      # Step 3: Set up Docker Build
+      - name: Build and Push Docker Image
         run: |
           IMAGE_TAG=${{ github.run_number }}
-          echo "Building Docker image $IMAGE_NAME:$IMAGE_TAG"
-          az acr build --registry $ACR_NAME --image $IMAGE_NAME:$IMAGE_TAG .
+          echo "Building Docker image $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG"
+          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG -f dockerfile .
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-      # 8️⃣ Set AKS context
-      - name: Set AKS context
-        uses: azure/aks-set-context@v2
-        with:
-          resource-group: ${{ env.RESOURCE_GROUP }}
-          cluster-name: ${{ env.AKS_CLUSTER }}
+      # Step 4: Connect to AKS
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials --resource-group $RESOURCE_GROUP --name $CLUSTER_NAME --overwrite-existing
 
-      # 9️⃣ Deploy to AKS (rolling update)
+      # Step 5: Deploy or Update Application
       - name: Deploy to AKS
         run: |
-          IMAGE_TAG=${{ github.run_number }}
-          echo "Updating deployment in namespace $NAMESPACE"
-          kubectl -n $NAMESPACE set image deployment/gaming-cafe-deployment \
-            gaming-cafe=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
-          
-          # Wait for rollout to complete
+          IMAGE_TAG=${{ env.IMAGE_TAG }}
+          echo "Deploying image $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG"
+
+          # Check if namespace exists
+          if ! kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
+            echo "Namespace $NAMESPACE does not exist. Creating..."
+            kubectl create namespace $NAMESPACE
+          fi
+
+          # Apply manifests if deployment does not exist
+          if ! kubectl -n $NAMESPACE get deployment gaming-cafe-deployment >/dev/null 2>&1; then
+            echo "Deployment not found, creating..."
+            kubectl apply -f k8s/
+          else
+            echo "Updating existing deployment..."
+            kubectl -n $NAMESPACE set image deployment/gaming-cafe-deployment \
+              gaming-cafe=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
+          fi
+
+          echo "Waiting for rollout..."
           kubectl -n $NAMESPACE rollout status deployment/gaming-cafe-deployment
-          
-          # Optional: verify pods
-          kubectl -n $NAMESPACE get pods -l app=gaming-cafe
+          kubectl -n $NAMESPACE get pods
