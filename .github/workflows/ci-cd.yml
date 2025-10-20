@@ -7,8 +7,8 @@ on:
 
 env:
   ACR_NAME: gcrgamingcafe9218        # your ACR name
-  RESOURCE_GROUP: gaming-cafe-rg # your Azure Resource Group
-  CLUSTER_NAME: gaming-cafe-aks  # your AKS cluster name
+  RESOURCE_GROUP: rg-gamingcafe # your Azure Resource Group
+  CLUSTER_NAME: aks-gamingcafe  # your AKS cluster name
   NAMESPACE: default             # or "gaming-cafe"
   IMAGE_NAME: gaming-cafe-app
 
