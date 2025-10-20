@@ -1,51 +1,74 @@
-name: CI-CD to Azure AKS
+name: CI-CD Gaming Cafe App
 
 on:
   push:
     branches:
-      - main
+      - main   # triggers when code is pushed to main
 
 env:
   IMAGE_NAME: gaming-cafe-app
+  NAMESPACE: gaming-cafe
+  RESOURCE_GROUP: rg-gamingcafe
+  AKS_CLUSTER: aks-gamingcafe
+  ACR_NAME: gcrgamingcafe
 
 jobs:
-  build-test-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      # 1️⃣ Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      - name: Install Dependencies
+      # 3️⃣ Install dependencies
+      - name: Install dependencies
         run: npm install
 
+      # 4️⃣ Run linter (optional)
       - name: Run Linter
         run: npm run lint || echo "⚠️ No linting configured"
 
+      # 5️⃣ Run unit tests (optional)
       - name: Run Unit Tests
         run: npm test || echo "⚠️ No tests configured"
 
+      # 6️⃣ Login to Azure
       - name: Login to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Build & Push Image to ACR
+      # 7️⃣ Build & push Docker image to ACR
+      - name: Build & Push Docker image
         run: |
-          az acr build --registry ${{ secrets.ACR_NAME }} --image $IMAGE_NAME:${{ github.run_number }} .
+          IMAGE_TAG=${{ github.run_number }}
+          echo "Building Docker image $IMAGE_NAME:$IMAGE_TAG"
+          az acr build --registry $ACR_NAME --image $IMAGE_NAME:$IMAGE_TAG .
 
-      - name: Get AKS Credentials
-        run: |
-          az aks get-credentials --resource-group ${{ secrets.RESOURCE_GROUP }} \
-          --name ${{ secrets.AKS_NAME }} --overwrite-existing
+      # 8️⃣ Set AKS context
+      - name: Set AKS context
+        uses: azure/aks-set-context@v2
+        with:
+          resource-group: ${{ env.RESOURCE_GROUP }}
+          cluster-name: ${{ env.AKS_CLUSTER }}
 
+      # 9️⃣ Deploy to AKS (rolling update)
       - name: Deploy to AKS
         run: |
-          kubectl set image deployment/gaming-cafe-deployment gaming-cafe=${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:${{ github.run_number }} || \
-          kubectl apply -f k8s/
+          IMAGE_TAG=${{ github.run_number }}
+          echo "Updating deployment in namespace $NAMESPACE"
+          kubectl -n $NAMESPACE set image deployment/gaming-cafe-deployment \
+            gaming-cafe=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
           
+          # Wait for rollout to complete
+          kubectl -n $NAMESPACE rollout status deployment/gaming-cafe-deployment
+          
+          # Optional: verify pods
+          kubectl -n $NAMESPACE get pods -l app=gaming-cafe
