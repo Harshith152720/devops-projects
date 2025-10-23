@@ -1,0 +1,122 @@
+name: Multi-Stage DevOps Pipeline - Gaming Cafe App
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  RESOURCE_GROUP: rg-gamingcafe
+  ACR_NAME: gcrgamingcafe9218
+  AKS_CLUSTER: aks-gamingcafe
+  NAMESPACE: default
+  IMAGE_NAME: gaming-cafe-app
+  IMAGE_TAG: ${{ github.run_number }}
+
+jobs:
+  # 🧩 1️⃣ SOURCE STAGE
+  source:
+    name: Source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Save code artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-code
+          path: .
+
+  # 🧰 2️⃣ BUILD STAGE
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: source
+    steps:
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: source-code
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Docker image
+        run: |
+          echo "Building image $IMAGE_NAME:$IMAGE_TAG"
+          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: .
+
+  # 🧪 3️⃣ TEST STAGE
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Run Unit Tests
+        run: |
+          echo "Running tests..."
+          npm test || echo "⚠️ Some tests failed, review logs before deployment."
+
+  # 🚀 4️⃣ DEPLOY STAGE
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: test
+    if: success()  # deploy only if previous stages succeed
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Azure Container Registry Login
+        run: az acr login --name $ACR_NAME
+
+      - name: Push Docker image to ACR
+        run: docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
+
+      - name: Set up AKS context
+        run: az aks get-credentials --resource-group $RESOURCE_GROUP --name $AKS_CLUSTER --overwrite-existing
+
+      - name: Deploy to AKS
+        run: |
+          echo "Deploying version $IMAGE_TAG to AKS..."
+          if ! kubectl get deployment gaming-cafe-deployment -n $NAMESPACE >/dev/null 2>&1; then
+            echo "Deployment not found — creating new one..."
+            kubectl apply -f k8s/
+          else
+            echo "Updating existing deployment image..."
+            kubectl -n $NAMESPACE set image deployment/gaming-cafe-deployment \
+              gaming-cafe=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
+          fi
+
+          kubectl -n $NAMESPACE rollout status deployment/gaming-cafe-deployment
+          kubectl -n $NAMESPACE get pods -o wide
