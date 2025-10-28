@@ -6,46 +6,49 @@ on:
       - main
 
 env:
-  ACR_NAME: gcrgamingcafe9218        # your ACR name
-  RESOURCE_GROUP: gaming-cafe-rg # your Azure Resource Group
-  CLUSTER_NAME: gaming-cafe-aks  # your AKS cluster name
-  NAMESPACE: default             # or "gaming-cafe"
-  IMAGE_NAME: gaming-cafe-app
+  ACR_NAME: gcrgamingcafe9218        # Azure Container Registry name
+  RESOURCE_GROUP: gaming-cafe-rg     # Azure Resource Group
+  CLUSTER_NAME: gaming-cafe-aks      # AKS Cluster name
+  NAMESPACE: default                 # Kubernetes Namespace
+  IMAGE_NAME: gaming-cafe-app        # Docker Image name
 
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # 🧩 Step 1: Checkout Source Code
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 1: Login to Azure using service principal
+      # 🔐 Step 2: Azure Login
       - name: Azure Login
-        uses: azure/login@v1
+        uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Step 2: Login to ACR
+      # 🏗️ Step 3: Login to Azure Container Registry
       - name: Azure Container Registry Login
         run: |
+          echo "Logging into Azure Container Registry: $ACR_NAME"
           az acr login --name $ACR_NAME
 
-      # Step 3: Set up Docker Build
+      # 🧱 Step 4: Build & Push Docker Image
       - name: Build and Push Docker Image
         run: |
           IMAGE_TAG=${{ github.run_number }}
-          echo "Building Docker image $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG"
-          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG -f Dockerfile .
-          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "Building Docker image $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG..."
+          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG -f dockerfile .
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
 
-      # Step 4: Connect to AKS
+      # 🔗 Step 5: Connect to AKS Cluster
       - name: Get AKS Credentials
         run: |
+          echo "Fetching AKS credentials..."
           az aks get-credentials --resource-group $RESOURCE_GROUP --name $CLUSTER_NAME --overwrite-existing
 
-      # Step 5: Deploy or Update Application
+      # 🚀 Step 6: Deploy or Update Application to AKS
       - name: Deploy to AKS
         run: |
           IMAGE_TAG=${{ env.IMAGE_TAG }}
@@ -53,20 +56,22 @@ jobs:
 
           # Check if namespace exists
           if ! kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
-            echo "Namespace $NAMESPACE does not exist. Creating..."
+            echo "Namespace '$NAMESPACE' not found. Creating..."
             kubectl create namespace $NAMESPACE
           fi
 
-          # Apply manifests if deployment does not exist
+          # Check if deployment exists
           if ! kubectl -n $NAMESPACE get deployment gaming-cafe-deployment >/dev/null 2>&1; then
-            echo "Deployment not found, creating..."
-            kubectl apply -f k8s/
+            echo "Deployment not found. Creating from k8s/ manifests..."
+            kubectl apply -f k8s/ -n $NAMESPACE
           else
-            echo "Updating existing deployment..."
+            echo "Deployment found. Updating image..."
             kubectl -n $NAMESPACE set image deployment/gaming-cafe-deployment \
               gaming-cafe=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
           fi
 
-          echo "Waiting for rollout..."
+          echo "Waiting for deployment rollout..."
           kubectl -n $NAMESPACE rollout status deployment/gaming-cafe-deployment
-          kubectl -n $NAMESPACE get pods
+
+          echo "Current Pods:"
+          kubectl -n $NAMESPACE get pods -o wide
