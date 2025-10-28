@@ -7,11 +7,11 @@ on:
   pull_request:
 
 env:
-  ACR_NAME: gcrgamingcafe9218           # your Azure Container Registry name
+  ACR_NAME: gcrgamingcafe9218           # Azure Container Registry name
   IMAGE_NAME: gaming-cafe-app
-  AKS_CLUSTER: aks-gamingcafe       # your AKS cluster name
-  AKS_RESOURCE_GROUP: rg-gamingcafe # your AKS resource group
-  NAMESPACE: default
+  AKS_CLUSTER: aks-gamingcafe           # AKS cluster name
+  AKS_RESOURCE_GROUP: rg-gamingcafe     # AKS resource group
+  NAMESPACE: default                    # Kubernetes namespace
 
 jobs:
   # 🧩 1️⃣ SOURCE STAGE
@@ -50,7 +50,7 @@ jobs:
         run: |
           IMAGE_TAG=${{ github.run_number }}
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG .
+          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG -f dockerfile .
 
       - name: Push Docker image to ACR
         run: |
@@ -62,7 +62,7 @@ jobs:
         with:
           name: docker-metadata
           path: |
-            Dockerfile
+            dockerfile
             k8s/
             server.js
             package.json
@@ -81,12 +81,11 @@ jobs:
           name: docker-metadata
 
       - name: Install dependencies
-        run: |
-          npm install
+        run: npm install
 
       - name: Run tests
         run: |
-          npm test || echo "No tests found - continuing"
+          npm test || echo "⚠️ No tests found - continuing pipeline"
 
       - name: Upload test results
         if: always()
@@ -116,12 +115,21 @@ jobs:
         with:
           name: docker-metadata
 
-      - name: Deploy updated image to AKS
+      - name: Apply Kubernetes manifests
+        run: |
+          echo "Applying Kubernetes manifests..."
+          kubectl apply -f k8s/ -n $NAMESPACE
+
+      - name: Update deployment image and rollout
         run: |
           IMAGE_TAG=${{ github.run_number }}
+          echo "Updating image to $IMAGE_TAG in AKS..."
           kubectl set image deployment/gaming-cafe-deployment \
             gaming-cafe=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG \
             -n $NAMESPACE
+
+          echo "Waiting for rollout to complete..."
           kubectl rollout status deployment/gaming-cafe-deployment -n $NAMESPACE
+
+          echo "Checking running pods..."
           kubectl get pods -n $NAMESPACE
-          
