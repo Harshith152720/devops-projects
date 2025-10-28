@@ -9,7 +9,7 @@ env:
   ACR_NAME: gcrgamingcafe9218        # your ACR name
   RESOURCE_GROUP: gaming-cafe-rg      # your Azure Resource Group
   CLUSTER_NAME: gaming-cafe-aks       # your AKS cluster name
-  NAMESPACE: gaming-cafe              # better to use custom namespace
+  NAMESPACE: default                        # better to use custom namespace
   IMAGE_NAME: gaming-cafe-app
 
 jobs:

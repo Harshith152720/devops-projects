@@ -4,7 +4,7 @@ az login
 # variables
 RG="rg-gamingcafe"
 LOCATION="centralindia"  # pick nearest region
-ACR_NAME="gcrgamingcafe$RANDOM"  # unique name
+ACR_NAME="gcrgamingcafe9218"  # unique name
 AKS_NAME="aks-gamingcafe"
 NODE_COUNT=2
 NODE_SIZE="Standard_D4as_v5"
@@ -25,3 +25,5 @@ az aks create -g $RG -n $AKS_NAME \
 
 # get credentials
 az aks get-credentials -g $RG -n $AKS_NAME
+
+
