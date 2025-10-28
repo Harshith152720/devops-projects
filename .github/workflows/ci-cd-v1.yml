@@ -124,3 +124,4 @@ jobs:
             -n $NAMESPACE
           kubectl rollout status deployment/gaming-cafe-deployment -n $NAMESPACE
           kubectl get pods -n $NAMESPACE
+          
