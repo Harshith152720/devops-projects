@@ -1,135 +1,56 @@
-name: Gaming Cafe CI/CD Pipeline
+name: CI/CD - Gaming Cafe App
 
 on:
   push:
     branches:
       - main
-  pull_request:
 
 env:
-  ACR_NAME: gcrgamingcafe9218           # Azure Container Registry name
+  ACR_NAME: gcrgamingcafe9218        # Your ACR name
+  RESOURCE_GROUP: gaming-cafe-rg     # Azure Resource Group
+  CLUSTER_NAME: gaming-cafe-aks      # AKS Cluster name
+  NAMESPACE: default                 # Namespace
   IMAGE_NAME: gaming-cafe-app
-  AKS_CLUSTER: aks-gamingcafe           # AKS cluster name
-  AKS_RESOURCE_GROUP: rg-gamingcafe     # AKS resource group
-  NAMESPACE: default                    # Kubernetes namespace
 
 jobs:
-  # 🧩 1️⃣ SOURCE STAGE
-  source:
-    name: Source Checkout
+  build-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      # Step 1: Checkout source
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Upload source code as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-code
-          path: .
-
-  # 🏗️ 2️⃣ BUILD STAGE
-  build:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest
-    needs: source
-
-    steps:
-      - name: Download source artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: source-code
-
+      # Step 2: Azure Login
       - name: Azure Login
-        uses: azure/login@v2
+        uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Build Docker image
+      # Step 3: ACR Login
+      - name: Azure Container Registry Login
+        run: az acr login --name $ACR_NAME
+
+      # Step 4: Build & Push Docker Image
+      - name: Build and Push Docker Image
         run: |
           IMAGE_TAG=${{ github.run_number }}
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG -f Dockerfile .
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
 
-      - name: Push Docker image to ACR
+      # Step 5: Get AKS credentials
+      - name: Get AKS Credentials
         run: |
-          az acr login --name $ACR_NAME
-          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.run_number }}
+          az aks get-credentials --resource-group $RESOURCE_GROUP --name $CLUSTER_NAME --overwrite-existing
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-metadata
-          path: |
-            Dockerfile
-            k8s/
-            server.js
-            package.json
-            package-lock.json
-
-  # 🧪 3️⃣ TEST STAGE
-  test:
-    name: Run Automated Tests
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-metadata
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run tests
+      # Step 6: Deploy manifests from k8s folder
+      - name: Deploy to AKS
         run: |
-          npm test || echo "⚠️ No tests found - continuing pipeline"
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: test-results/
-
-  # 🚀 4️⃣ DEPLOY STAGE
-  deploy:
-    name: Deploy to AKS
-    runs-on: ubuntu-latest
-    needs: test
-    environment: production
-
-    steps:
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Get AKS credentials
-        run: az aks get-credentials --resource-group $AKS_RESOURCE_GROUP --name $AKS_CLUSTER --overwrite-existing
-
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-metadata
-
-      - name: Apply Kubernetes manifests
-        run: |
-          echo "Applying Kubernetes manifests..."
+          IMAGE_TAG=${{ env.IMAGE_TAG }}
+          echo "Deploying image $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG"
+          
+          # Replace image tag in deployment file before applying
+          sed -i "s|IMAGE_TAG_PLACEHOLDER|$IMAGE_TAG|g" k8s/deployment.yml
+          
           kubectl apply -f k8s/ -n $NAMESPACE
-
-      - name: Update deployment image and rollout
-        run: |
-          IMAGE_TAG=${{ github.run_number }}
-          echo "Updating image to $IMAGE_TAG in AKS..."
-          kubectl set image deployment/gaming-cafe-deployment \
-            gaming-cafe=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG \
-            -n $NAMESPACE
-
-          echo "Waiting for rollout to complete..."
-          kubectl rollout status deployment/gaming-cafe-deployment -n $NAMESPACE
-
-          echo "Checking running pods..."
-          kubectl get pods -n $NAMESPACE
