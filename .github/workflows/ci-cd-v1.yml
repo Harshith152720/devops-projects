@@ -7,7 +7,7 @@ on:
   pull_request:
 
 env:
-  ACR_NAME: aks-gamingcafe           # your Azure Container Registry name
+  ACR_NAME: gcrgamingcafe9218           # your Azure Container Registry name
   IMAGE_NAME: gaming-cafe-app
   AKS_CLUSTER: aks-gamingcafe       # your AKS cluster name
   AKS_RESOURCE_GROUP: rg-gamingcafe # your AKS resource group
