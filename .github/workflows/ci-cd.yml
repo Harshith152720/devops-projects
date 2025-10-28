@@ -52,5 +52,5 @@ jobs:
           
           # Replace image tag in deployment file before applying
           sed -i "s|IMAGE_TAG_PLACEHOLDER|$IMAGE_TAG|g" k8s/deployment.yml
-          
+        
           kubectl apply -f k8s/ -n $NAMESPACE
